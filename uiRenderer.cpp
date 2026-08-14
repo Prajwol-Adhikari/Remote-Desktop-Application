@@ -12,19 +12,17 @@ UIRenderer::UIRenderer(NetworkManager &netManager)
 
     // 1. Server-side: when any connected client sends a chat message
     m_netManager.SetServerOnChatReceivedCallback([this](uint64_t clientId, const std::string &msg)
-    {
+                                                 {
         std::string formattedMsg = "[Peer #" + std::to_string(clientId) + "]: " + msg;
         std::lock_guard<std::mutex> lock(m_ServerClientChats[clientId].chatMutex);
-        m_ServerClientChats[clientId].messages.push_back({formattedMsg, ImVec4(0.8f, 0.9f, 0.2f, 1.0f)});
-    });
+        m_ServerClientChats[clientId].messages.push_back({formattedMsg, ImVec4(0.8f, 0.9f, 0.2f, 1.0f)}); });
 
     // 2. Client-side: when the server sends a message back (routed to hostChat session)
     m_netManager.SetOnClientChatReceivedCallback([this](const std::string &msg)
-    {
+                                                 {
         ClientChatSession &hostChat = m_ServerClientChats[0];
         std::lock_guard<std::mutex> lock(hostChat.chatMutex);
-        hostChat.messages.push_back({msg, ImVec4(0.2f, 0.8f, 1.0f, 1.0f)});
-    });
+        hostChat.messages.push_back({msg, ImVec4(0.2f, 0.8f, 1.0f, 1.0f)}); });
 }
 
 UIRenderer::~UIRenderer()
@@ -100,7 +98,7 @@ void RenderClientScreenView(NetworkManager &netManager, GLuint &m_ScreenTexture,
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
-    // 2. Poll the latest incoming frame 
+    // 2. Poll the latest incoming frame
     std::vector<uint8_t> incomingPacket;
     if (netManager.GetLatestIncomingFrame(incomingPacket))
     {
@@ -763,6 +761,13 @@ void UIRenderer::RenderActiveSession()
     // ==========================================
     if (m_SelectedRole == ROLE_CLIENT)
     {
+        if (!m_netManager.IsClientConnected())
+        {
+            m_netManager.Disconnect();             // Clean up client sockets & threads
+            m_SelectedRole = ROLE_NONE;            // Reset selected role
+            m_CurrentState = STATE_ROLE_SELECTION; // Return to role selection menu
+            return;                                // Stop rendering this frame
+        }
         if (ImGui::BeginTabBar("ClientManagementTabBar"))
         {
             // --- TAB 1: SESSION INFO ---
@@ -796,6 +801,17 @@ void UIRenderer::RenderActiveSession()
 
                 ImGui::Spacing();
 
+                // FPS & Stream Info Calculation
+                static float s_FpsAccumulator = 0.0f;
+                static int s_FrameCount = 0;
+                static float s_CurrentFps = 0.0f;
+
+                float dt = ImGui::GetIO().DeltaTime;
+                if (dt > 0.0f)
+                {
+                    s_FpsAccumulator += dt;
+                }
+
                 if (!m_CanViewServerScreen)
                 {
                     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "[Waiting]: Host has not granted screen viewing permissions yet.");
@@ -805,8 +821,11 @@ void UIRenderer::RenderActiveSession()
                     std::vector<uint8_t> decodedPixels;
                     uint32_t curWidth = 0, curHeight = 0;
 
+                    // ONLY update texture AND increment frame count when a NEW frame is retrieved
                     if (m_netManager.GetLatestDecodedFrame(decodedPixels, curWidth, curHeight) && !decodedPixels.empty())
                     {
+                        s_FrameCount++; 
+
                         if (curWidth > 0 && curHeight > 0)
                         {
                             glBindTexture(GL_TEXTURE_2D, m_ScreenTexture);
@@ -815,8 +834,8 @@ void UIRenderer::RenderActiveSession()
                             if (static_cast<int>(curWidth) != m_LastTextureWidth || static_cast<int>(curHeight) != m_LastTextureHeight)
                             {
                                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, curWidth, curHeight, 0, GL_BGRA, GL_UNSIGNED_BYTE, decodedPixels.data());
-                                m_LastTextureWidth = curWidth;
-                                m_LastTextureHeight = curHeight;
+                                m_LastTextureWidth = static_cast<int>(curWidth);
+                                m_LastTextureHeight = static_cast<int>(curHeight);
                             }
                             else
                             {
@@ -827,21 +846,12 @@ void UIRenderer::RenderActiveSession()
                     }
                 }
 
-                // FPS & Stream Info Calculation
-                static float s_FpsAccumulator = 0.0f;
-                static int s_FrameCount = 0;
-                static float s_CurrentFps = 0.0f;
-                float dt = ImGui::GetIO().DeltaTime;
-                if (dt > 0.0f)
+                // Recalculate Stream FPS once per second
+                if (s_FpsAccumulator >= 1.0f)
                 {
-                    s_FrameCount++;
-                    s_FpsAccumulator += dt;
-                    if (s_FpsAccumulator >= 1.0f)
-                    {
-                        s_CurrentFps = static_cast<float>(s_FrameCount) / s_FpsAccumulator;
-                        s_FrameCount = 0;
-                        s_FpsAccumulator = 0.0f;
-                    }
+                    s_CurrentFps = static_cast<float>(s_FrameCount) / s_FpsAccumulator;
+                    s_FrameCount = 0;
+                    s_FpsAccumulator = 0.0f;
                 }
 
                 if (m_CanViewServerScreen && m_ScreenTexture != 0)
@@ -862,7 +872,6 @@ void UIRenderer::RenderActiveSession()
                     {
                         ImVec2 availSize = ImGui::GetContentRegionAvail();
                         ImVec2 renderSize = availSize;
-                        ImVec2 screenSpaceImagePos = ImGui::GetCursorScreenPos();
 
                         float aspect = static_cast<float>(m_LastTextureWidth) / static_cast<float>(m_LastTextureHeight);
                         if (renderSize.x / renderSize.y > aspect)
@@ -874,10 +883,17 @@ void UIRenderer::RenderActiveSession()
                             renderSize.y = renderSize.x / aspect;
                         }
 
-                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availSize.x - renderSize.x) * 0.5f);
+                        // Calculate centering offsets for letterboxing (both X and Y)
+                        float offsetX = (availSize.x - renderSize.x) * 0.5f;
+                        float offsetY = (availSize.y - renderSize.y) * 0.5f;
+
+                        // Apply horizontal and vertical centering
+                        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + offsetX, ImGui::GetCursorPosY() + offsetY));
+
+                        ImVec2 screenSpaceImagePos = ImGui::GetCursorScreenPos();
+
                         ImGui::Image((void *)(intptr_t)m_ScreenTexture, renderSize);
 
-                        // Capture and send inputs to server via network manager
                         ProcessRemoteViewportInput(screenSpaceImagePos, renderSize);
                     }
                     else
@@ -888,7 +904,6 @@ void UIRenderer::RenderActiveSession()
                 ImGui::EndChild();
                 ImGui::EndTabItem();
             }
-
             // --- TAB 3: CONSOLE MESSENGER ---
             if (ImGui::BeginTabItem("Console Messenger"))
             {

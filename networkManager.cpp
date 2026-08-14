@@ -79,6 +79,7 @@ bool NetworkManager::StartServer(int port)
 
 void NetworkManager::StopServer()
 {
+    
     m_isRunning = false;
     StopDiscoveryBroadcast();
 
@@ -88,6 +89,12 @@ void NetworkManager::StopServer()
         m_listenSocket = INVALID_SOCKET;
     }
 
+    if (m_serverListenThread.joinable())
+    {
+        m_serverListenThread.join();
+    }
+
+    std::vector<ClientNode> clientsToDestroy;
     {
         std::lock_guard<std::mutex> lock(m_clientMutex);
         for (auto &client : m_connectedClients)
@@ -99,13 +106,13 @@ void NetworkManager::StopServer()
                 client.socket = INVALID_SOCKET;
             }
         }
-        m_connectedClients.clear();
-    }
 
-    if (m_serverListenThread.joinable())
-    {
-        m_serverListenThread.join();
-    }
+        clientsToDestroy = std::move(m_connectedClients);
+    } 
+    clientsToDestroy.clear();
+
+    // 5. Reset status
+    m_status = ConnectionStatus::Disconnected;
 }
 
 void NetworkManager::ListenLoop()
@@ -946,3 +953,4 @@ void NetworkManager::SetServerOnChatReceivedCallback(ServerChatCallback cb)
 {
     m_serverChatCallback = cb;
 }
+

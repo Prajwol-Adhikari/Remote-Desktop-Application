@@ -1,9 +1,12 @@
 #ifndef NETWORK_MANAGER_H
 #define NETWORK_MANAGER_H
 
+// ============================================================================
+// Includes & Pragmas
+// ============================================================================
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#pragma comment(lib, "Ws2_32.lib")
 
 #include <atomic>
 #include <cstdint>
@@ -15,10 +18,14 @@
 #include <thread>
 #include <vector>
 
-// --- Project Headers ---
-#include "inputInjector.h"
 #include "screenCapture.h"
+#include "inputInjector.h"
 
+#pragma comment(lib, "Ws2_32.lib")
+
+// ============================================================================
+// Enums & Data Structures
+// ============================================================================
 
 enum class ConnectionStatus
 {
@@ -47,12 +54,9 @@ struct ClientNode
     bool inputControlEnabled = false;
 
     ClientNode() = default;
-    
-    // Non-copyable
     ClientNode(const ClientNode &) = delete;
     ClientNode &operator=(const ClientNode &) = delete;
 
-    // Move Operations
     ClientNode(ClientNode &&other) noexcept
         : id(other.id),
           socket(other.socket),
@@ -90,9 +94,13 @@ struct ClientNode
     ~ClientNode()
     {
         if (socket != INVALID_SOCKET)
+        {
             closesocket(socket);
+        }
         if (handlerThread.joinable())
+        {
             handlerThread.join();
+        }
     }
 };
 
@@ -105,17 +113,18 @@ struct ClientUIInfo
     bool inputControlEnabled;
 };
 
-
+// ============================================================================
+// NetworkManager Class
+// ============================================================================
 
 class NetworkManager
 {
 public:
     // --- Type Aliases ---
-    using ChatCallback               = std::function<void(uint64_t senderId, const std::string &message)>;
-    using ClientChatCallback         = std::function<void(const std::string &message)>;
-    using ServerChatCallback         = std::function<void(uint64_t senderId, const std::string &message)>;
+    using ChatCallback       = std::function<void(uint64_t, const std::string &)>;
+    using ServerChatCallback = std::function<void(uint64_t senderId, const std::string &message)>;
 
-    // --- Constructor / Destructor ---
+    // --- Constructor & Destructor ---
     NetworkManager();
     ~NetworkManager();
 
@@ -144,43 +153,54 @@ public:
 
     // --- Frame & Video Pipeline ---
     bool GetLatestIncomingFrame(std::vector<uint8_t> &outBuffer);
-    bool GetLatestDecodedFrame(std::vector<uint8_t> &outPixels, uint32_t &outWidth, uint32_t &outHeight);
     void SendFrame(const std::vector<uint8_t> &frameData);
     void SendScreenFrameToClient(uint64_t clientId, const std::vector<uint8_t> &frameData);
     void SendScreenFrameToServer(const std::vector<uint8_t> &frameData);
     void BroadcastServerScreenFrame(const std::vector<uint8_t> &frameData);
+    bool GetLatestDecodedFrame(std::vector<uint8_t> &outPixels, uint32_t &outWidth, uint32_t &outHeight);
     bool ReadScreenPacket(SOCKET serverSocket, std::vector<uint8_t> &outFrameBuffer);
 
-    // --- Messaging & Input Control ---
+    // --- Messaging & Input Packets ---
     void SendInputPacket(const std::vector<uint8_t> &payload);
     void SendChatPacket(const std::vector<uint8_t> &payload);
     void SendServerChatToClient(uint64_t clientId, const std::vector<uint8_t> &payload);
 
-    // Callbacks
-    void SetOnChatReceivedCallback(ChatCallback cb);
-    void SetOnClientChatReceivedCallback(ClientChatCallback cb);
+    // --- Callbacks ---
     void SetServerOnChatReceivedCallback(ServerChatCallback cb);
+    void SetOnChatReceivedCallback(ChatCallback cb);
+    void SetOnClientChatReceivedCallback(std::function<void(const std::string &)> cb);
 
     // --- Status & Getters ---
     bool IsRunning() const          { return m_isRunning; }
     bool IsServerRunning() const    { return m_isRunning && m_listenSocket != INVALID_SOCKET; }
     bool IsClientConnected() const  { return m_status == ConnectionStatus::Connected && m_activeSocket != INVALID_SOCKET; }
-    
+
     ConnectionStatus GetStatus() const { return m_status; }
     std::string GetConnectedClientIP() const;
     std::vector<std::string> GetDiscoveredServers() const { return m_discoveredServers; }
     std::string GetLastErrorMsg() const { return m_lastErrorMsg; }
 
+    std::optional<uint64_t> GetScreenShareClientId() const;
     bool CanViewServerScreen() const { return m_canViewServerScreen; }
     void SetCanViewServerScreen(bool allowed) { m_canViewServerScreen = allowed; }
-    std::optional<uint64_t> GetScreenShareClientId() const;
 
-    // --- Thread-Safe Client Accessors ---
+    // --- Thread-Safe Multi-Client Accessors ---
     std::vector<ClientNode> &GetConnectedClients() { return m_connectedClients; }
     std::mutex &GetClientMutex()                   { return m_clientMutex; }
-    std::vector<ClientUIInfo> GetClientUIInfos();
 
-    // --- Socket I/O Helpers ---
+    std::vector<ClientUIInfo> GetClientUIInfos()
+    {
+        std::lock_guard<std::mutex> lock(m_clientMutex);
+        std::vector<ClientUIInfo> list;
+        list.reserve(m_connectedClients.size());
+        for (const auto &client : m_connectedClients)
+        {
+            list.push_back({client.id, client.ip, client.status, client.canViewServerScreen, client.inputControlEnabled});
+        }
+        return list;
+    }
+
+    // --- Socket Utility Helpers ---
     bool ReceiveExact(SOCKET sock, char *dest, size_t totalBytes);
 
 private:
@@ -198,7 +218,7 @@ private:
     std::atomic<ConnectionStatus> m_status{ConnectionStatus::Disconnected};
     std::atomic<bool> m_canViewServerScreen{false};
 
-    // --- Client Container & Synchronization ---
+    // --- Client Synchronization ---
     std::vector<ClientNode> m_connectedClients;
     std::mutex m_clientMutex;
     uint64_t m_nextClientId = 1;
@@ -207,21 +227,9 @@ private:
     std::vector<std::string> m_discoveredServers;
     std::string m_lastErrorMsg;
 
-    // --- Frame Pipeline Buffers ---
+    // --- Incoming Frame Pipeline Storage ---
     std::vector<uint8_t> m_latestIncomingFrame;
-    std::vector<uint8_t> m_latestDecodedPixels;
-    uint32_t m_latestWidth  = 0;
-    uint32_t m_latestHeight = 0;
     std::mutex m_frameMutex;
-
-    // --- Input & Control Injection ---
-    uint64_t m_ActiveInputClientId = 0;
-    InputInjector m_InputInjector;
-
-    // --- Callbacks ---
-    ChatCallback m_onChatReceived;
-    ClientChatCallback m_onClientChatReceived;
-    ServerChatCallback m_serverChatCallback;
 
     // --- Thread Handles ---
     std::thread m_serverListenThread;
@@ -229,6 +237,20 @@ private:
     std::thread m_broadcastThread;
     std::thread m_searchThread;
     std::thread m_clientReceiveThread;
+
+    // --- Decoded Pixel Storage ---
+    std::vector<uint8_t> m_latestDecodedPixels;
+    uint32_t m_latestWidth = 0;
+    uint32_t m_latestHeight = 0;
+
+    // --- Remote Input Injection ---
+    uint64_t m_ActiveInputClientId = 0;
+    InputInjector m_InputInjector;
+
+    // --- Internal Callbacks ---
+    ChatCallback m_onChatReceived;
+    std::function<void(const std::string &)> m_onClientChatReceived;
+    ServerChatCallback m_serverChatCallback;
 
     // --- Internal Worker Loops ---
     void ListenLoop();
@@ -238,7 +260,7 @@ private:
     void SearchLoop(int port);
     void ClientReceiveLoop();
 
-    // --- Low-Level I/O Utilities ---
+    // --- Low-Level Socket I/O Helpers ---
     bool SendAll(SOCKET sock, const char *data, int totalBytes);
     bool RecvAll(SOCKET sock, char *data, int totalBytes);
 };
