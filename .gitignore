@@ -1,0 +1,13 @@
+# Executables
+*.exe
+rdp_client.exe
+remote_desktop_application.exe
+
+# Compiled Object Files
+*.o
+*.obj
+
+# IDE & Build Artefacts
+.vscode/
+.vs/
+/build/
