@@ -1,7 +1,4 @@
-// ==========================================
-// screenCapture.h
-// ==========================================
-//worked
+
 #ifndef SCREEN_CAPTURE_H
 #define SCREEN_CAPTURE_H
 

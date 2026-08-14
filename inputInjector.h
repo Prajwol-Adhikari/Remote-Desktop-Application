@@ -22,14 +22,14 @@ struct InputPayload {
     // Mouse Fields
     float    normalizedX{ 0.0f };   // 0.0f to 1.0f (Viewport relative)
     float    normalizedY{ 0.0f };   // 0.0f to 1.0f (Viewport relative)
-    uint32_t mouseFlags{ 0 };      // MOUSEEVENTF_*
-    int32_t  mouseData{ 0 };       // Wheel delta or extra button data
+    uint32_t mouseFlags{ 0 };      
+    int32_t  mouseData{ 0 };       
     
     // Keyboard Fields
-    uint16_t virtualKey{ 0 };      // VK_* code
-    uint16_t scanCode{ 0 };        // Hardware scan code
+    uint16_t virtualKey{ 0 };      
+    uint16_t scanCode{ 0 };        
     uint8_t  keyUp{ 0 };           // 0 = KeyDown, 1 = KeyUp
-    uint8_t  isExtendedKey{ 0 };   // Extended key bit flag
+    uint8_t  isExtendedKey{ 0 };   
 };
 #pragma pack(pop)
 

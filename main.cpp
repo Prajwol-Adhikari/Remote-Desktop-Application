@@ -2,24 +2,23 @@
 #include "dependencies/imgui.h"
 #include "dependencies/imgui_impl_win32.h"
 #include "dependencies/imgui_impl_opengl3.h"
-#include <GL/glew.h>  // MUST be first
-#include <GLFW/glfw3.h> // Then GLFW / others
+#include <GL/glew.h>  
+#include <GLFW/glfw3.h> 
 #include <GL/gl.h>
 
 #include "NetworkManager.h"
 #include "uiRenderer.h"
 
-// Forward declare message handler from imgui_impl_win32.cpp
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-// Win32 message handler
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
         return true;
 
     switch (msg) {
     case WM_SYSCOMMAND:
-        if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
+        if ((wParam & 0xfff0) == SC_KEYMENU) 
             return 0;
         break;
     case WM_DESTROY:
@@ -88,10 +87,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     NetworkManager networkManager;
     UIRenderer uiRenderer(networkManager);
 
-    // Main loop
+    
     bool done = false;
     while (!done) {
-        // Poll Windows messages without blocking the frame rate
+        
         MSG msg;
         while (::PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
             ::TranslateMessage(&msg);

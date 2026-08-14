@@ -260,7 +260,6 @@ void NetworkManager::ClientHandlerLoop(SOCKET sock)
 
             if (packetType == 1) // Input Packet
             {
-                // No permission flags required anymore; inject directly!
                 m_InputInjector.DeserializeAndInject(payload);
             }
             else if (packetType == 2) // Incoming Chat from Client
@@ -274,7 +273,6 @@ void NetworkManager::ClientHandlerLoop(SOCKET sock)
                     {
                         std::string clientMsg(reinterpret_cast<const char*>(payload.data() + sizeof(uint32_t)), strLen);
 
-                        // Fire callback to UI layer
                         if (m_serverChatCallback)
                         {
                             m_serverChatCallback(currentClientId, clientMsg);
@@ -353,7 +351,6 @@ void NetworkManager::ConnectAsyncWorker(std::string ip, int port)
 
     m_activeSocket = tempSocket;
 
-    // Use a reasonable timeout only for initial handshake response
     DWORD timeout = 15000;
     setsockopt(m_activeSocket, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
 
@@ -375,7 +372,6 @@ void NetworkManager::ConnectAsyncWorker(std::string ip, int port)
             m_status = ConnectionStatus::Connected;
             m_lastErrorMsg = "";
 
-            // Disable timeouts completely for continuous streaming
             DWORD zeroTimeout = 0;
             setsockopt(m_activeSocket, SOL_SOCKET, SO_RCVTIMEO, (char *)&zeroTimeout, sizeof(zeroTimeout));
             setsockopt(m_activeSocket, SOL_SOCKET, SO_SNDTIMEO, (char *)&zeroTimeout, sizeof(zeroTimeout));
@@ -889,7 +885,6 @@ void NetworkManager::SendInputPacket(const std::vector<uint8_t> &payload)
     uint8_t packetType = 1; // PACKET_INPUT identifier
     uint32_t payloadSize = static_cast<uint32_t>(payload.size());
 
-    // Send using your standard protocol structure: [Type (1 byte)][Size (4 bytes)][Payload]
     if (!SendAll(m_activeSocket, reinterpret_cast<const char *>(&packetType), sizeof(packetType)))
     {
         return;
@@ -922,20 +917,15 @@ void NetworkManager::SendServerChatToClient(uint64_t clientId, const std::vector
 
 void NetworkManager::SendChatPacket(const std::vector<uint8_t> &payload)
 {
-    // If you are connected as a client, send the chat payload to the server
     if (IsClientConnected())
     {
-        // Construct chat packet wrapper or send raw payload depending on your protocol
-        // Example structure: [PacketType::PACKET_CHAT][Payload Size][Payload Data]
         uint32_t payloadSize = static_cast<uint32_t>(payload.size());
         std::vector<uint8_t> packet;
         packet.push_back(static_cast<uint8_t>(PacketType::PACKET_CHAT));
         
-        // Append size (4 bytes)
         const char* sizePtr = reinterpret_cast<const char*>(&payloadSize);
         packet.insert(packet.end(), sizePtr, sizePtr + sizeof(payloadSize));
         
-        // Append actual message payload
         packet.insert(packet.end(), payload.begin(), payload.end());
 
         SendAll(m_activeSocket, reinterpret_cast<const char*>(packet.data()), static_cast<int>(packet.size()));

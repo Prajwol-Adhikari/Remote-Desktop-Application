@@ -29,7 +29,6 @@ UIRenderer::UIRenderer(NetworkManager &netManager)
 
 UIRenderer::~UIRenderer()
 {
-    // Ensure background threads are safely stopped and joined before destruction
     StopScreenSharingPipeline();
 }
 
@@ -50,7 +49,6 @@ void UIRenderer::StartScreenSharingPipeline()
 
         while (m_isSharingScreen && m_Capturer.IsRunning())
         {
-            // Always ensure we pace ourselves at the start or end of every loop iteration
             std::this_thread::sleep_for(std::chrono::milliseconds(33)); // ~30 FPS cap
 
             if (m_TargetClientId == 0)
@@ -102,7 +100,7 @@ void RenderClientScreenView(NetworkManager &netManager, GLuint &m_ScreenTexture,
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
-    // 2. Poll the latest incoming frame using NetworkManager's actual method name
+    // 2. Poll the latest incoming frame 
     std::vector<uint8_t> incomingPacket;
     if (netManager.GetLatestIncomingFrame(incomingPacket))
     {
@@ -117,7 +115,7 @@ void RenderClientScreenView(NetworkManager &netManager, GLuint &m_ScreenTexture,
             {
                 glBindTexture(GL_TEXTURE_2D, m_ScreenTexture);
 
-                // 4. Update GPU texture data (full allocation on resize, fast sub-image update otherwise)
+                // 4. Update GPU texture data
                 if (frameWidth != static_cast<uint32_t>(m_LastTextureWidth) || frameHeight != static_cast<uint32_t>(m_LastTextureHeight))
                 {
                     glTexImage2D(
@@ -515,7 +513,7 @@ void UIRenderer::RenderActiveSession()
         ImGui::Separator();
         ImGui::Spacing();
 
-        // --- REVISED SERVER UI TAB BLOCK ---
+        // --- SERVER UI TAB BLOCK ---
         if (ImGui::BeginTabBar("ServerManagementTabBar"))
         {
             // --- TAB 1: CONNECTED & PENDING DEVICES ---
@@ -926,7 +924,6 @@ void UIRenderer::RenderActiveSession()
                     std::string msgText(m_MessageInput);
 
                     // 1. Serialize chat message into a byte vector payload
-                    // Format: [String Length (4 bytes)][String Characters]
                     std::vector<uint8_t> payload;
                     uint32_t strLen = static_cast<uint32_t>(msgText.size());
 

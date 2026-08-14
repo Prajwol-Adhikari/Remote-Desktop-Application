@@ -3,19 +3,22 @@
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <string>
-#include <thread>
+#pragma comment(lib, "Ws2_32.lib")
+
 #include <atomic>
-#include <vector>
-#include <mutex>
 #include <cstdint>
 #include <cstring>
 #include <functional>
-#include <optional> 
-#include "screenCapture.h"
-#include "inputInjector.h"
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
 
-#pragma comment(lib, "Ws2_32.lib")
+// --- Project Headers ---
+#include "inputInjector.h"
+#include "screenCapture.h"
+
 
 enum class ConnectionStatus
 {
@@ -27,10 +30,10 @@ enum class ConnectionStatus
 
 enum PacketType : uint8_t
 {
-    PACKET_SCREEN_FRAME = 1,
-    PACKET_CHAT = 2,
+    PACKET_SCREEN_FRAME       = 1,
+    PACKET_CHAT               = 2,
     PACKET_SCREEN_SHARE_START = 3,
-    PACKET_SCREEN_SHARE_STOP = 4
+    PACKET_SCREEN_SHARE_STOP  = 4
 };
 
 struct ClientNode
@@ -44,9 +47,12 @@ struct ClientNode
     bool inputControlEnabled = false;
 
     ClientNode() = default;
+    
+    // Non-copyable
     ClientNode(const ClientNode &) = delete;
     ClientNode &operator=(const ClientNode &) = delete;
 
+    // Move Operations
     ClientNode(ClientNode &&other) noexcept
         : id(other.id),
           socket(other.socket),
@@ -84,13 +90,9 @@ struct ClientNode
     ~ClientNode()
     {
         if (socket != INVALID_SOCKET)
-        {
             closesocket(socket);
-        }
         if (handlerThread.joinable())
-        {
             handlerThread.join();
-        }
     }
 };
 
@@ -103,127 +105,132 @@ struct ClientUIInfo
     bool inputControlEnabled;
 };
 
+
+
 class NetworkManager
 {
 public:
+    // --- Type Aliases ---
+    using ChatCallback               = std::function<void(uint64_t senderId, const std::string &message)>;
+    using ClientChatCallback         = std::function<void(const std::string &message)>;
+    using ServerChatCallback         = std::function<void(uint64_t senderId, const std::string &message)>;
+
+    // --- Constructor / Destructor ---
     NetworkManager();
     ~NetworkManager();
 
+    // --- Winsock Lifecycle ---
     bool InitializeWinsock();
     void CleanupWinsock();
 
-    // Server methods
+    // --- Server Operations ---
     bool StartServer(int port);
     void StopServer();
     void AcceptClient(uint64_t clientId, bool accept = true);
     void DisconnectClient(uint64_t clientId);
     void SetClientScreenSharePermission(uint64_t clientId, bool enabled);
     void SetClientInputControlPermission(uint64_t clientId, bool enabled);
+    void SetClientScreenPermission(uint64_t clientId, bool allowed);
 
-    // Client methods
+    // --- Client Operations ---
     void ConnectToServerAsync(const std::string &ip, int port);
     void Disconnect();
 
-    // UDP Discovery methods
+    // --- UDP Discovery Service ---
     bool StartDiscoveryBroadcast(int port);
     void StopDiscoveryBroadcast();
     bool StartServerSearch(int port);
     void StopServerSearch();
 
-    // Frame Streaming Pipeline Methods & Helpers
+    // --- Frame & Video Pipeline ---
     bool GetLatestIncomingFrame(std::vector<uint8_t> &outBuffer);
+    bool GetLatestDecodedFrame(std::vector<uint8_t> &outPixels, uint32_t &outWidth, uint32_t &outHeight);
     void SendFrame(const std::vector<uint8_t> &frameData);
     void SendScreenFrameToClient(uint64_t clientId, const std::vector<uint8_t> &frameData);
     void SendScreenFrameToServer(const std::vector<uint8_t> &frameData);
     void BroadcastServerScreenFrame(const std::vector<uint8_t> &frameData);
+    bool ReadScreenPacket(SOCKET serverSocket, std::vector<uint8_t> &outFrameBuffer);
 
-    // Getters & Setters & State Checks
-    bool IsRunning() const { return m_isRunning; }
-    bool IsServerRunning() const { return m_isRunning && m_listenSocket != INVALID_SOCKET; }
-    bool IsClientConnected() const { return m_status == ConnectionStatus::Connected && m_activeSocket != INVALID_SOCKET; }
+    // --- Messaging & Input Control ---
+    void SendInputPacket(const std::vector<uint8_t> &payload);
+    void SendChatPacket(const std::vector<uint8_t> &payload);
+    void SendServerChatToClient(uint64_t clientId, const std::vector<uint8_t> &payload);
 
+    // Callbacks
+    void SetOnChatReceivedCallback(ChatCallback cb);
+    void SetOnClientChatReceivedCallback(ClientChatCallback cb);
+    void SetServerOnChatReceivedCallback(ServerChatCallback cb);
+
+    // --- Status & Getters ---
+    bool IsRunning() const          { return m_isRunning; }
+    bool IsServerRunning() const    { return m_isRunning && m_listenSocket != INVALID_SOCKET; }
+    bool IsClientConnected() const  { return m_status == ConnectionStatus::Connected && m_activeSocket != INVALID_SOCKET; }
+    
     ConnectionStatus GetStatus() const { return m_status; }
     std::string GetConnectedClientIP() const;
     std::vector<std::string> GetDiscoveredServers() const { return m_discoveredServers; }
     std::string GetLastErrorMsg() const { return m_lastErrorMsg; }
 
-    // Multi-client server accessors
-    std::vector<ClientNode> &GetConnectedClients() { return m_connectedClients; }
-    std::mutex &GetClientMutex() { return m_clientMutex; }
-
-    std::vector<ClientUIInfo> GetClientUIInfos()
-    {
-        std::lock_guard<std::mutex> lock(m_clientMutex);
-        std::vector<ClientUIInfo> list;
-        list.reserve(m_connectedClients.size());
-        for (const auto &client : m_connectedClients)
-        {
-            list.push_back({client.id, client.ip, client.status, client.canViewServerScreen, client.inputControlEnabled});
-        }
-        return list;
-    }
-
-    void SendInputPacket(const std::vector<uint8_t> &payload);
-    void SendChatPacket(const std::vector<uint8_t> &payload);
-
-    void SetClientScreenPermission(uint64_t clientId, bool allowed);
-    std::optional<uint64_t> GetScreenShareClientId() const;
     bool CanViewServerScreen() const { return m_canViewServerScreen; }
     void SetCanViewServerScreen(bool allowed) { m_canViewServerScreen = allowed; }
-    bool GetLatestDecodedFrame(std::vector<uint8_t> &outPixels, uint32_t &outWidth, uint32_t &outHeight);
+    std::optional<uint64_t> GetScreenShareClientId() const;
+
+    // --- Thread-Safe Client Accessors ---
+    std::vector<ClientNode> &GetConnectedClients() { return m_connectedClients; }
+    std::mutex &GetClientMutex()                   { return m_clientMutex; }
+    std::vector<ClientUIInfo> GetClientUIInfos();
+
+    // --- Socket I/O Helpers ---
     bool ReceiveExact(SOCKET sock, char *dest, size_t totalBytes);
-    bool ReadScreenPacket(SOCKET serverSocket, std::vector<uint8_t> &outFrameBuffer);
-
-    using ChatCallback = std::function<void(uint64_t, const std::string &)>;
-    using ServerChatCallback = std::function<void(uint64_t senderId, const std::string& message)>;
-
-    void SetServerOnChatReceivedCallback(ServerChatCallback cb);
-    void SendServerChatToClient(uint64_t clientId, const std::vector<uint8_t>& payload);
-    void SetOnChatReceivedCallback(ChatCallback cb);
-    void SetOnClientChatReceivedCallback(std::function<void(const std::string &)> cb);
 
 private:
-    SOCKET m_listenSocket;
-    SOCKET m_activeSocket;
-    SOCKET m_udpBroadcastSocket;
-    SOCKET m_udpSearchSocket;
+    // --- Socket Handles ---
+    SOCKET m_listenSocket       = INVALID_SOCKET;
+    SOCKET m_activeSocket       = INVALID_SOCKET;
+    SOCKET m_udpBroadcastSocket = INVALID_SOCKET;
+    SOCKET m_udpSearchSocket    = INVALID_SOCKET;
 
-    std::atomic<bool> m_isInitialized;
-    std::atomic<bool> m_isRunning;
-    std::atomic<bool> m_isBroadcasting;
-    std::atomic<bool> m_isSearching;
-    std::atomic<ConnectionStatus> m_status;
+    // --- Atomic State Flags ---
+    std::atomic<bool> m_isInitialized{false};
+    std::atomic<bool> m_isRunning{false};
+    std::atomic<bool> m_isBroadcasting{false};
+    std::atomic<bool> m_isSearching{false};
+    std::atomic<ConnectionStatus> m_status{ConnectionStatus::Disconnected};
+    std::atomic<bool> m_canViewServerScreen{false};
 
+    // --- Client Container & Synchronization ---
     std::vector<ClientNode> m_connectedClients;
     std::mutex m_clientMutex;
     uint64_t m_nextClientId = 1;
 
+    // --- Network Discovery & Diagnostics ---
     std::vector<std::string> m_discoveredServers;
     std::string m_lastErrorMsg;
 
-    // Incoming Frame Pipeline storage (Client receiving server screen)
+    // --- Frame Pipeline Buffers ---
     std::vector<uint8_t> m_latestIncomingFrame;
+    std::vector<uint8_t> m_latestDecodedPixels;
+    uint32_t m_latestWidth  = 0;
+    uint32_t m_latestHeight = 0;
     std::mutex m_frameMutex;
 
+    // --- Input & Control Injection ---
+    uint64_t m_ActiveInputClientId = 0;
+    InputInjector m_InputInjector;
+
+    // --- Callbacks ---
+    ChatCallback m_onChatReceived;
+    ClientChatCallback m_onClientChatReceived;
+    ServerChatCallback m_serverChatCallback;
+
+    // --- Thread Handles ---
     std::thread m_serverListenThread;
     std::thread m_clientConnectThread;
     std::thread m_broadcastThread;
     std::thread m_searchThread;
     std::thread m_clientReceiveThread;
 
-    std::atomic<bool> m_canViewServerScreen{false};
-
-    std::vector<uint8_t> m_latestDecodedPixels;
-    uint32_t m_latestWidth = 0;
-    uint32_t m_latestHeight = 0;
-
-    uint64_t m_ActiveInputClientId = 0;
-    InputInjector m_InputInjector;
-
-    ChatCallback m_onChatReceived;
-    std::function<void(const std::string &)> m_onClientChatReceived;
-    ServerChatCallback m_serverChatCallback;
-
+    // --- Internal Worker Loops ---
     void ListenLoop();
     void ConnectAsyncWorker(std::string ip, int port);
     void ClientHandlerLoop(SOCKET sock);
@@ -231,7 +238,7 @@ private:
     void SearchLoop(int port);
     void ClientReceiveLoop();
 
-    // TCP Protocol Stream Helpers
+    // --- Low-Level I/O Utilities ---
     bool SendAll(SOCKET sock, const char *data, int totalBytes);
     bool RecvAll(SOCKET sock, char *data, int totalBytes);
 };

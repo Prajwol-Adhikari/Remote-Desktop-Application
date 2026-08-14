@@ -5,8 +5,8 @@
 #include "screenCapture.h"
 #include "inputInjector.h"
 #include "dependencies/imgui.h"
-#include <GL/glew.h>  // MUST be first
-#include <GLFW/glfw3.h> // Then GLFW / others
+#include <GL/glew.h>  
+#include <GLFW/glfw3.h> 
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -82,7 +82,7 @@ private:
     std::thread m_screenShareThread;
     std::atomic<bool> m_isSharingScreen{false};
 
-    uint64_t m_ActiveInputClientId = 0;   // Replaces int m_ActiveInputClientIndex
+    uint64_t m_ActiveInputClientId = 0;   
     bool m_CanViewServerScreen = false;
     bool m_CanControlInput = false;
 

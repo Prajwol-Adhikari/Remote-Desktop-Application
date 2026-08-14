@@ -1,6 +1,4 @@
-// ==========================================
-// screenCapture.cpp (Zero-Dependency Stateful Delta Compression)
-// ==========================================
+
 #include "screenCapture.h"
 #include <cstring>
 #include <algorithm>
