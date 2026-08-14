@@ -18,7 +18,7 @@ This workspace provides multi-client remote desktop hosting, real-time screen fr
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```text
 ├── dependencies/          # Vendored ImGui and graphics library headers
