@@ -1,4 +1,3 @@
-// worked
 #include "uiRenderer.h"
 #include <cstring>
 #include <iostream>
@@ -759,11 +758,12 @@ void UIRenderer::RenderActiveSession()
     // ==========================================
     // 2. REMOTE CLIENT DASHBOARD
     // ==========================================
-    if (m_SelectedRole == ROLE_CLIENT)
+    
+if (m_SelectedRole == ROLE_CLIENT)
     {
         if (!m_netManager.IsClientConnected())
         {
-            m_netManager.Disconnect();             // Clean up client sockets & threads
+            m_netManager.Disconnect();            // Clean up client sockets & threads
             m_SelectedRole = ROLE_NONE;            // Reset selected role
             m_CurrentState = STATE_ROLE_SELECTION; // Return to role selection menu
             return;                                // Stop rendering this frame
@@ -801,17 +801,6 @@ void UIRenderer::RenderActiveSession()
 
                 ImGui::Spacing();
 
-                // FPS & Stream Info Calculation
-                static float s_FpsAccumulator = 0.0f;
-                static int s_FrameCount = 0;
-                static float s_CurrentFps = 0.0f;
-
-                float dt = ImGui::GetIO().DeltaTime;
-                if (dt > 0.0f)
-                {
-                    s_FpsAccumulator += dt;
-                }
-
                 if (!m_CanViewServerScreen)
                 {
                     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "[Waiting]: Host has not granted screen viewing permissions yet.");
@@ -821,11 +810,8 @@ void UIRenderer::RenderActiveSession()
                     std::vector<uint8_t> decodedPixels;
                     uint32_t curWidth = 0, curHeight = 0;
 
-                    // ONLY update texture AND increment frame count when a NEW frame is retrieved
                     if (m_netManager.GetLatestDecodedFrame(decodedPixels, curWidth, curHeight) && !decodedPixels.empty())
                     {
-                        s_FrameCount++; 
-
                         if (curWidth > 0 && curHeight > 0)
                         {
                             glBindTexture(GL_TEXTURE_2D, m_ScreenTexture);
@@ -846,18 +832,10 @@ void UIRenderer::RenderActiveSession()
                     }
                 }
 
-                // Recalculate Stream FPS once per second
-                if (s_FpsAccumulator >= 1.0f)
-                {
-                    s_CurrentFps = static_cast<float>(s_FrameCount) / s_FpsAccumulator;
-                    s_FrameCount = 0;
-                    s_FpsAccumulator = 0.0f;
-                }
-
                 if (m_CanViewServerScreen && m_ScreenTexture != 0)
                 {
-                    ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Stream FPS: %.1f | Resolution: %dx%d",
-                                       s_CurrentFps, m_LastTextureWidth, m_LastTextureHeight);
+                    ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Resolution: %dx%d",
+                                       m_LastTextureWidth, m_LastTextureHeight);
                 }
 
                 ImVec2 viewportSize = m_ViewportFullscreen ? ImVec2(-1, -1) : ImVec2(-1, ImGui::GetWindowHeight() * 0.60f);
@@ -883,11 +861,9 @@ void UIRenderer::RenderActiveSession()
                             renderSize.y = renderSize.x / aspect;
                         }
 
-                        // Calculate centering offsets for letterboxing (both X and Y)
                         float offsetX = (availSize.x - renderSize.x) * 0.5f;
                         float offsetY = (availSize.y - renderSize.y) * 0.5f;
 
-                        // Apply horizontal and vertical centering
                         ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + offsetX, ImGui::GetCursorPosY() + offsetY));
 
                         ImVec2 screenSpaceImagePos = ImGui::GetCursorScreenPos();
@@ -910,8 +886,7 @@ void UIRenderer::RenderActiveSession()
                 ImGui::Text("Console Messenger (Connected to Host)");
                 ImGui::Spacing();
 
-                // Use a shared client-side chat log or session for the host connection
-                ClientChatSession &hostChat = m_ServerClientChats[0]; // Or a dedicated client log structure
+                ClientChatSession &hostChat = m_ServerClientChats[0];
 
                 if (ImGui::BeginChild("ClientMessageHistory", ImVec2(-1, ImGui::GetWindowHeight() * 0.52f), true))
                 {
@@ -938,7 +913,6 @@ void UIRenderer::RenderActiveSession()
                 {
                     std::string msgText(m_MessageInput);
 
-                    // 1. Serialize chat message into a byte vector payload
                     std::vector<uint8_t> payload;
                     uint32_t strLen = static_cast<uint32_t>(msgText.size());
 
@@ -946,10 +920,8 @@ void UIRenderer::RenderActiveSession()
                     std::memcpy(payload.data(), &strLen, sizeof(uint32_t));
                     std::memcpy(payload.data() + sizeof(uint32_t), msgText.data(), strLen);
 
-                    // 2. Send via NetworkManager using Packet Type 2 (Chat Packet)
                     m_netManager.SendChatPacket(payload);
 
-                    // 3. Push locally to client view
                     {
                         std::lock_guard<std::mutex> lock(hostChat.chatMutex);
                         std::string userMsg = "[Client]: " + msgText;
@@ -958,7 +930,6 @@ void UIRenderer::RenderActiveSession()
 
                     std::memset(m_MessageInput, 0, sizeof(m_MessageInput));
 
-                    // Keep focus active on the input field for continuous typing if Enter was pressed
                     if (enterPressed)
                     {
                         ImGui::SetKeyboardFocusHere(-1);
